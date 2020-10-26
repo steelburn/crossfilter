@@ -1,32 +1,23 @@
-'use strict';
-
-var xfilterArray = require('./array');
-var xfilterFilter = require('./filter');
-var crossfilter_identity = require('./identity');
-var crossfilter_null = require('./null');
-var crossfilter_zero = require('./zero');
-var xfilterHeapselect = require('./heapselect');
-var xfilterHeap = require('./heap');
-var bisect = require('./bisect');
-var insertionsort = require('./insertionsort');
-var permute = require('./permute');
-var quicksort = require('./quicksort');
-var xfilterReduce = require('./reduce');
-var packageJson = require('./../package.json'); // require own package.json for the version field
-var result = require('lodash.result');
+import xfilterArray from './array';
+import xfilterFilter from './filter';
+import cr_identity from './identity';
+import cr_null from './null';
+import cr_zero from './zero';
+import xfilterHeapselect from './heapselect';
+import xfilterHeap from './heap';
+import bisect from './bisect';
+import permute from './permute';
+import xfilterReduce from './reduce';
+import result from './result';
 
 // constants
 var REMOVED_INDEX = -1;
 
-// expose API exports
-exports.crossfilter = crossfilter;
-exports.crossfilter.heap = xfilterHeap;
-exports.crossfilter.heapselect = xfilterHeapselect;
-exports.crossfilter.bisect = bisect;
-exports.crossfilter.insertionsort = insertionsort;
-exports.crossfilter.permute = permute;
-exports.crossfilter.quicksort = quicksort;
-exports.crossfilter.version = packageJson.version; // please note use of "package-json-versionify" transform
+crossfilter.heap = xfilterHeap;
+crossfilter.heapselect = xfilterHeapselect;
+crossfilter.bisect = bisect;
+crossfilter.permute = permute;
+export default crossfilter;
 
 function crossfilter() {
   var crossfilter = {
@@ -74,7 +65,7 @@ function crossfilter() {
   // removes all records matching the predicate (ignoring filters).
   function removeData(predicate) {
     var // Mapping from old record indexes to new indexes (after records removed)
-        newIndex = crossfilter_index(n, n),
+        newIndex = new Array(n),
         removed = [],
         usePred = typeof predicate === 'function',
         shouldRemove = function (i) {
@@ -109,23 +100,26 @@ function crossfilter() {
     triggerOnChange('dataRemoved');
   }
 
+  function maskForDimensions(dimensions) {
+    var n,
+        d,
+        len,
+        id,
+        mask = Array(filters.subarrays);
+    for (n = 0; n < filters.subarrays; n++) { mask[n] = ~0; }
+    for (d = 0, len = dimensions.length; d < len; d++) {
+      // The top bits of the ID are the subarray offset and the lower bits are the bit
+      // offset of the "one" mask.
+      id = dimensions[d].id();
+      mask[id >> 7] &= ~(0x1 << (id & 0x3f));
+    }
+    return mask;
+  }
+
   // Return true if the data element at index i is filtered IN.
   // Optionally, ignore the filters of any dimensions in the ignore_dimensions list.
   function isElementFiltered(i, ignore_dimensions) {
-    var n,
-        d,
-        id,
-        len,
-        mask = Array(filters.subarrays);
-    for (n = 0; n < filters.subarrays; n++) { mask[n] = ~0; }
-    if (ignore_dimensions) {
-      for (d = 0, len = ignore_dimensions.length; d < len; d++) {
-        // The top bits of the ID are the subarray offset and the lower bits are the bit
-        // offset of the "one" mask.
-        id = ignore_dimensions[d].id();
-        mask[id >> 7] &= ~(0x1 << (id & 0x3f));
-      }
-    }
+    var mask = maskForDimensions(ignore_dimensions || []);
     return filters.zeroExceptMask(i,mask);
   }
 
@@ -143,6 +137,8 @@ function crossfilter() {
       filterRange: filterRange,
       filterFunction: filterFunction,
       filterAll: filterAll,
+      currentFilter: currentFilter,
+      hasCurrentFilter: hasCurrentFilter,
       top: top,
       bottom: bottom,
       group: group,
@@ -162,13 +158,18 @@ function crossfilter() {
         newValues, // temporary array storing newly-added values
         newIndex, // temporary array storing newly-added index
         iterablesIndexCount,
-        newIterablesIndexCount,
         iterablesIndexFilterStatus,
-        newIterablesIndexFilterStatus,
         iterablesEmptyRows = [],
-        sort = quicksort.by(function(i) { return newValues[i]; }),
+        sortRange = function(n) {
+          return cr_range(n).sort(function(A, B) {
+            var a = newValues[A], b = newValues[B];
+            return a < b ? -1 : a > b ? 1 : A - B;
+          });
+        },
         refilter = xfilterFilter.filterAll, // for recomputing filter
         refilterFunction, // the custom filter function in use
+        filterValue, // the value used for filtering (value, array, function or undefined)
+        filterValuePresent, // true if filterValue contains something
         indexListeners = [], // when data is added
         dimensionGroups = [],
         lo0 = 0,
@@ -202,6 +203,8 @@ function crossfilter() {
     // Incorporates the specified new records into this dimension.
     // This function is responsible for updating filters, values, and index.
     function preAdd(newData, n0, n1) {
+      var newIterablesIndexCount,
+          newIterablesIndexFilterStatus;
 
       if (iterable){
         // Count all the values
@@ -216,9 +219,9 @@ function crossfilter() {
         }
 
         newValues = [];
-        newIterablesIndexCount = crossfilter_range(newData.length);
-        newIterablesIndexFilterStatus = crossfilter_index(t,1);
-        var unsortedIndex = crossfilter_range(t);
+        newIterablesIndexCount = cr_range(newData.length);
+        newIterablesIndexFilterStatus = cr_index(t,1);
+        var unsortedIndex = cr_range(t);
 
         for (var l = 0, index1 = 0; index1 < newData.length; index1++) {
           k = value(newData[index1])
@@ -237,7 +240,7 @@ function crossfilter() {
         }
 
         // Create the Sort map used to sort both the values and the valueToData indices
-        var sortMap = sort(crossfilter_range(t), 0, t);
+        var sortMap = sortRange(t);
 
         // Use the sortMap to sort the newValues
         newValues = permute(newValues, sortMap);
@@ -250,31 +253,53 @@ function crossfilter() {
       } else{
         // Permute new values into natural order using a standard sorted index.
         newValues = newData.map(value);
-        newIndex = sort(crossfilter_range(n1), 0, n1);
+        newIndex = sortRange(n1);
         newValues = permute(newValues, newIndex);
-      }
-
-      if(iterable) {
-        n1 = t;
       }
 
       // Bisect newValues to determine which new records are selected.
       var bounds = refilter(newValues), lo1 = bounds[0], hi1 = bounds[1];
-      if (refilterFunction) {
-        for (var index2 = 0; index2 < n1; ++index2) {
-          if (!refilterFunction(newValues[index2], index2)) {
-            filters[offset][newIndex[index2] + n0] |= one;
-            if(iterable) newIterablesIndexFilterStatus[index2] = 1;
+
+      var index2, index3, index4;
+      if(iterable) {
+        n1 = t;
+        if (refilterFunction) {
+          for (index2 = 0; index2 < n1; ++index2) {
+            if (!refilterFunction(newValues[index2], index2)) {
+              if(--newIterablesIndexCount[newIndex[index2]] === 0) {
+                filters[offset][newIndex[index2] + n0] |= one;
+              }
+              newIterablesIndexFilterStatus[index2] = 1;
+            }
+          }
+        } else {
+          for (index3 = 0; index3 < lo1; ++index3) {
+            if(--newIterablesIndexCount[newIndex[index3]] === 0) {
+              filters[offset][newIndex[index3] + n0] |= one;
+            }
+            newIterablesIndexFilterStatus[index3] = 1;
+          }
+          for (index4 = hi1; index4 < n1; ++index4) {
+            if(--newIterablesIndexCount[newIndex[index4]] === 0) {
+              filters[offset][newIndex[index4] + n0] |= one;
+            }
+            newIterablesIndexFilterStatus[index4] = 1;
           }
         }
       } else {
-        for (var index3 = 0; index3 < lo1; ++index3) {
-          filters[offset][newIndex[index3] + n0] |= one;
-          if(iterable) newIterablesIndexFilterStatus[index3] = 1;
-        }
-        for (var index4 = hi1; index4 < n1; ++index4) {
-          filters[offset][newIndex[index4] + n0] |= one;
-          if(iterable) newIterablesIndexFilterStatus[index4] = 1;
+        if (refilterFunction) {
+          for (index2 = 0; index2 < n1; ++index2) {
+            if (!refilterFunction(newValues[index2], index2)) {
+              filters[offset][newIndex[index2] + n0] |= one;
+            }
+          }
+        } else {
+          for (index3 = 0; index3 < lo1; ++index3) {
+            filters[offset][newIndex[index3] + n0] |= one;
+          }
+          for (index4 = hi1; index4 < n1; ++index4) {
+            filters[offset][newIndex[index4] + n0] |= one;
+          }
         }
       }
 
@@ -308,8 +333,8 @@ function crossfilter() {
 
       // Otherwise, create new arrays into which to merge new and old.
       values = iterable ? new Array(n0 + n1) : new Array(n);
-      index = iterable ? new Array(n0 + n1) : crossfilter_index(n, n);
-      if(iterable) iterablesIndexFilterStatus = crossfilter_index(n0 + n1, 1);
+      index = iterable ? new Array(n0 + n1) : cr_index(n, n);
+      if(iterable) iterablesIndexFilterStatus = cr_index(n0 + n1, 1);
 
       // Concatenate the newIterablesIndexCount onto the old one.
       if(iterable) {
@@ -373,7 +398,7 @@ function crossfilter() {
             i1++;
           }
         }
-        iterablesIndexCount.length = i1;
+        iterablesIndexCount = iterablesIndexCount.slice(0, i1);
       }
       // Rewrite our index, overwriting removed values
       var n0 = values.length;
@@ -389,7 +414,7 @@ function crossfilter() {
         }
       }
       values.length = j;
-      if (iterable) iterablesIndexFilterStatus.length = j;
+      if (iterable) iterablesIndexFilterStatus = iterablesIndexFilterStatus.slice(0, j);
       while (j < n0) index[j++] = 0;
 
       // Bisect again to recompute lo0 and hi0.
@@ -486,7 +511,7 @@ function crossfilter() {
         removed = newRemoved;
 
         // Now handle empty rows.
-        if(bounds[0] === 0 && bounds[1] === values.length) {
+        if(refilter === xfilterFilter.filterAll) {
           for(i = 0; i < iterablesEmptyRows.length; i++) {
             if((filters[offset][k = iterablesEmptyRows[i]] & one)) {
               // Was not in the filter, so set the filter and add
@@ -527,22 +552,31 @@ function crossfilter() {
 
     // Filters this dimension to select the exact value.
     function filterExact(value) {
+      filterValue = value;
+      filterValuePresent = true;
       return filterIndexBounds((refilter = xfilterFilter.filterExact(bisect, value))(values));
     }
 
     // Filters this dimension to select the specified range [lo, hi].
     // The lower bound is inclusive, and the upper bound is exclusive.
     function filterRange(range) {
+      filterValue = range;
+      filterValuePresent = true;
       return filterIndexBounds((refilter = xfilterFilter.filterRange(bisect, range))(values));
     }
 
     // Clears any filters on this dimension.
     function filterAll() {
+      filterValue = undefined;
+      filterValuePresent = false;
       return filterIndexBounds((refilter = xfilterFilter.filterAll)(values));
     }
 
     // Filters this dimension using an arbitrary function.
     function filterFunction(f) {
+      filterValue = f;
+      filterValuePresent = true;
+
       refilterFunction = f;
       refilter = xfilterFilter.filterAll;
 
@@ -646,6 +680,14 @@ function crossfilter() {
 
       filterListeners.forEach(function(l) { l(one, offset, added, removed); });
       triggerOnChange('filtered');
+    }
+
+    function currentFilter() {
+      return filterValue;
+    }
+
+    function hasCurrentFilter() {
+      return filterValuePresent;
     }
 
     // Returns the top K selected records based on this dimension's order.
@@ -752,20 +794,20 @@ function crossfilter() {
       var groups, // array of {key, value}
           groupIndex, // object id ↦ group id
           groupWidth = 8,
-          groupCapacity = crossfilter_capacity(groupWidth),
+          groupCapacity = capacity(groupWidth),
           k = 0, // cardinality
           select,
           heap,
           reduceAdd,
           reduceRemove,
           reduceInitial,
-          update = crossfilter_null,
-          reset = crossfilter_null,
+          update = cr_null,
+          reset = cr_null,
           resetNeeded = true,
-          groupAll = key === crossfilter_null,
+          groupAll = key === cr_null,
           n0old;
 
-      if (arguments.length < 1) key = crossfilter_identity;
+      if (arguments.length < 1) key = cr_identity;
 
       // The group listens to the crossfilter for when any dimension changes, so
       // that it can update the associated reduce values. It must also listen to
@@ -788,7 +830,7 @@ function crossfilter() {
         }
 
         var oldGroups = groups,
-            reIndex = iterable ? [] : crossfilter_index(k, groupCapacity),
+            reIndex = iterable ? [] : cr_index(k, groupCapacity),
             add = reduceAdd,
             remove = reduceRemove,
             initial = reduceInitial,
@@ -803,8 +845,8 @@ function crossfilter() {
             x; // key of group to add
 
         // If a reset is needed, we don't need to update the reduce values.
-        if (resetNeeded) add = initial = crossfilter_null;
-        if (resetNeeded) remove = initial = crossfilter_null;
+        if (resetNeeded) add = initial = cr_null;
+        if (resetNeeded) remove = initial = cr_null;
 
         // Reset the new groups (k is a lower bound).
         // Also, make sure that groupIndex exists and is long enough.
@@ -813,7 +855,7 @@ function crossfilter() {
           groupIndex = k0 ? groupIndex : [];
         }
         else{
-          groupIndex = k0 > 1 ? xfilterArray.arrayLengthen(groupIndex, n) : crossfilter_index(n, groupCapacity);
+          groupIndex = k0 > 1 ? xfilterArray.arrayLengthen(groupIndex, n) : cr_index(n, groupCapacity);
         }
 
 
@@ -927,8 +969,8 @@ function crossfilter() {
             update = updateOne;
             reset = resetOne;
           } else {
-            update = crossfilter_null;
-            reset = crossfilter_null;
+            update = cr_null;
+            reset = cr_null;
           }
           groupIndex = null;
         }
@@ -944,7 +986,7 @@ function crossfilter() {
           if (++k === groupCapacity) {
             reIndex = xfilterArray.arrayWiden(reIndex, groupWidth <<= 1);
             groupIndex = xfilterArray.arrayWiden(groupIndex, groupWidth);
-            groupCapacity = crossfilter_capacity(groupWidth);
+            groupCapacity = capacity(groupWidth);
           }
         }
       }
@@ -953,7 +995,7 @@ function crossfilter() {
         if (k > 1 || iterable) {
           var oldK = k,
               oldGroups = groups,
-              seenGroups = crossfilter_index(oldK, oldK),
+              seenGroups = cr_index(oldK, oldK),
               i,
               i0,
               j;
@@ -977,6 +1019,7 @@ function crossfilter() {
                 ++j;
               }
             }
+            groupIndex = groupIndex.slice(0, j);
           }
 
           // Reassemble groups including only those groups that were referred
@@ -1007,13 +1050,13 @@ function crossfilter() {
           filterListeners[filterListeners.indexOf(update)] = k > 1 || iterable
               ? (reset = resetMany, update = updateMany)
               : k === 1 ? (reset = resetOne, update = updateOne)
-              : reset = update = crossfilter_null;
+              : reset = update = cr_null;
         } else if (k === 1) {
           if (groupAll) return;
           for (var index3 = 0; index3 < n; ++index3) if (reIndex[index3] !== REMOVED_INDEX) return;
           groups = [], k = 0;
           filterListeners[filterListeners.indexOf(update)] =
-          update = reset = crossfilter_null;
+          update = reset = cr_null;
         }
       }
 
@@ -1188,12 +1231,12 @@ function crossfilter() {
 
       // A convenience method for reducing by count.
       function reduceCount() {
-        return reduce(xfilterReduce.reduceIncrement, xfilterReduce.reduceDecrement, crossfilter_zero);
+        return reduce(xfilterReduce.reduceIncrement, xfilterReduce.reduceDecrement, cr_zero);
       }
 
       // A convenience method for reducing by sum(value).
       function reduceSum(value) {
-        return reduce(xfilterReduce.reduceAdd(value), xfilterReduce.reduceSubtract(value), crossfilter_zero);
+        return reduce(xfilterReduce.reduceAdd(value), xfilterReduce.reduceSubtract(value), cr_zero);
       }
 
       // Sets the reduce order, using the specified accessor.
@@ -1206,7 +1249,7 @@ function crossfilter() {
 
       // A convenience method for natural ordering by reduce value.
       function orderNatural() {
-        return order(crossfilter_identity);
+        return order(cr_identity);
       }
 
       // Returns the cardinality of this group, irrespective of any filters.
@@ -1232,7 +1275,7 @@ function crossfilter() {
 
     // A convenience function for generating a singleton group.
     function groupAll() {
-      var g = group(crossfilter_null), all = g.all;
+      var g = group(cr_null), all = g.all;
       delete g.all;
       delete g.top;
       delete g.order;
@@ -1358,12 +1401,12 @@ function crossfilter() {
 
     // A convenience method for reducing by count.
     function reduceCount() {
-      return reduce(xfilterReduce.reduceIncrement, xfilterReduce.reduceDecrement, crossfilter_zero);
+      return reduce(xfilterReduce.reduceIncrement, xfilterReduce.reduceDecrement, cr_zero);
     }
 
     // A convenience method for reducing by sum(value).
     function reduceSum(value) {
-      return reduce(xfilterReduce.reduceAdd(value), xfilterReduce.reduceSubtract(value), crossfilter_zero);
+      return reduce(xfilterReduce.reduceAdd(value), xfilterReduce.reduceSubtract(value), cr_zero);
     }
 
     // Returns the computed reduce value.
@@ -1394,13 +1437,14 @@ function crossfilter() {
     return data;
   }
 
-  // Returns row data with all dimension filters applied
-  function allFiltered() {
+  // Returns row data with all dimension filters applied, except for filters in ignore_dimensions
+  function allFiltered(ignore_dimensions) {
     var array = [],
-        i = 0;
+        i = 0,
+        mask = maskForDimensions(ignore_dimensions || []);
 
       for (i = 0; i < n; i++) {
-        if (filters.zero(i)) {
+        if (filters.zeroExceptMask(i, mask)) {
           array.push(data[i]);
         }
       }
@@ -1432,7 +1476,7 @@ function crossfilter() {
 }
 
 // Returns an array of size n, big enough to store ids up to m.
-function crossfilter_index(n, m) {
+function cr_index(n, m) {
   return (m < 0x101
       ? xfilterArray.array8 : m < 0x10001
       ? xfilterArray.array16
@@ -1440,13 +1484,13 @@ function crossfilter_index(n, m) {
 }
 
 // Constructs a new array of size n, with sequential values from 0 to n - 1.
-function crossfilter_range(n) {
-  var range = crossfilter_index(n, n);
+function cr_range(n) {
+  var range = cr_index(n, n);
   for (var i = -1; ++i < n;) range[i] = i;
   return range;
 }
 
-function crossfilter_capacity(w) {
+function capacity(w) {
   return w === 8
       ? 0x100 : w === 16
       ? 0x10000

@@ -1,13 +1,11 @@
-'use strict';
-
-function crossfilter_filterExact(bisect, value) {
+const filterExact = (bisect, value) => {
   return function(values) {
     var n = values.length;
     return [bisect.left(values, value, 0, n), bisect.right(values, value, 0, n)];
   };
 }
 
-function crossfilter_filterRange(bisect, range) {
+const filterRange = (bisect, range) => {
   var min = range[0],
       max = range[1];
   return function(values) {
@@ -16,12 +14,12 @@ function crossfilter_filterRange(bisect, range) {
   };
 }
 
-function crossfilter_filterAll(values) {
+const filterAll = values => {
   return [0, values.length];
 }
 
-module.exports = {
-  filterExact: crossfilter_filterExact,
-  filterRange: crossfilter_filterRange,
-  filterAll: crossfilter_filterAll
+export default {
+  filterExact,
+  filterRange,
+  filterAll
 };

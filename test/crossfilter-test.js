@@ -1,8 +1,9 @@
+import crossfilter from '../main.js';
+
 var vows = require("vows"),
     assert = require("assert"),
     sinon = require("sinon"),
-    d3 = require("d3"),
-    crossfilter = require("../");
+    d3 = require("d3");
 
 var suite = vows.describe("crossfilter");
 
@@ -18,7 +19,7 @@ var testData = [
   {date: "2011-11-14T17:07:21Z", quantity: 2, total: 90, tip: 0, type: "tab", tags: [1,2,3]},
   {date: "2011-11-14T17:22:59Z", quantity: 2, total: 90, tip: 0, type: "tab", tags: []},
   {date: "2011-11-14T17:25:45Z", quantity: 2, total: 200, tip: null, type: "cash", tags: [2,4,5]},
-  {date: "2011-11-14T17:29:52Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [-1, 0, 'hello', 'world']},
+  {date: "2011-11-14T17:29:52Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [-1, 0, 3, 4]},
   {date: "2011-11-14T17:33:46Z", quantity: 2, total: 190, tip: 100, type: "tab", tags: [1,2,3]},
   {date: "2011-11-14T17:33:59Z", quantity: 2, total: 90, tip: 0, type: "tab", tags: [1,3]},
   {date: "2011-11-14T17:38:40Z", quantity: 2, total: 200, tip: 100, type: "visa", tags: [2,4,5]},
@@ -67,6 +68,7 @@ suite.addBatch({
         data.typeByString = data.dimension('type');
         data.tags = data.dimension(function(d) { return d.tags; }, true);
         data.firstTag = data.dimension('tags[0]');
+        data.firstTagDot = data.dimension('tags.0');
         data.year = data.dimension('getYear');
 
       } catch (e) {
@@ -294,6 +296,11 @@ suite.addBatch({
         assert.equal(data.firstTag.accessor({ tags: [4,5] }), 4);
       },
 
+      "stringPathDotAccessor": function(data) {
+        assert.equal(data.firstTagDot.accessor({ tags: [2,4,5] }), 2);
+        assert.equal(data.firstTagDot.accessor({ tags: [4,5] }), 4);
+      },
+
       "stringFunctionCallAccessor": function(data) {
         function getYear() {
           return new Date(this.date).getFullYear();
@@ -318,7 +325,7 @@ suite.addBatch({
           assert.deepEqual(data.total.top(3, 1), [
             {date: "2011-11-14T20:49:07Z", quantity: 2, total: 290, tip: 200, type: "tab", tags: [2,4,5]},
             {date: "2011-11-14T21:18:48Z", quantity: 4, total: 270, tip: 0, type: "tab", tags: [1,2,3]},
-            {date: "2011-11-14T17:38:40Z", quantity: 2, total: 200, tip: 100, type: 'visa', tags: [2,4,5]}
+            {date: "2011-11-14T23:16:09Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [2,4,5]}
           ]);
           assert.deepEqual(data.date.top(3,10), [
             {date: "2011-11-14T22:30:22Z", quantity: 2, total: 89, tip: 0, type: "tab", tags: [1,3]},
@@ -366,8 +373,8 @@ suite.addBatch({
               {date: "2011-11-14T21:18:48Z", quantity: 4, total: 270, tip: 0, type: "tab", tags: [1,2,3]}
             ]);
             assert.deepEqual(data.total.top(2, 8), [
-              {date: '2011-11-14T21:26:30Z', quantity: 2, total: 190, tip: 100, type: 'tab', tags: [2,4,5]},
-              {date: '2011-11-14T23:28:54Z', quantity: 2, total: 190, tip: 100, type: 'tab', tags: [1,2,3]}
+              {date: "2011-11-14T22:34:28Z", quantity: 2, total: 190, tip: 100, type: "tab", tags: [2,4,5]},
+              {date: "2011-11-14T21:30:55Z", quantity: 2, total: 190, tip: 100, type: "tab", tags: [2,3,4]}
             ]);
             data.type.filterExact("visa");
             assert.deepEqual(data.total.top(1), [
@@ -445,7 +452,7 @@ suite.addBatch({
           ]);
           assert.deepEqual(data.date.bottom(3, 10), [
             {date: "2011-11-14T17:25:45Z", quantity: 2, total: 200, tip: null, type: "cash", tags: [2,4,5]},
-            {date: "2011-11-14T17:29:52Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [-1, 0, 'hello', 'world']},
+            {date: "2011-11-14T17:29:52Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [-1, 0, 3, 4]},
             {date: "2011-11-14T17:33:46Z", quantity: 2, total: 190, tip: 100, type: "tab", tags: [1,2,3]}
          ]);
         },
@@ -675,6 +682,72 @@ suite.addBatch({
           assert.lesser(data.date.top(Infinity).length, 43);
           data.total.filter(null);
           assert.equal(data.date.top(Infinity).length, 43);
+        }
+      },
+
+      // TODO "undefined" chosen as empty value since "null" is a legitimate value, but this is not consistent with the filter() method
+      "currentFilter/hasCurrentFilter": {
+        "reflect the currently applied filter": function (data) {
+          try {
+
+            var v, w;
+
+            // filter:
+
+            v = 2;
+            data.quantity.filterExact(v);
+            assert.strictEqual(data.quantity.currentFilter(), v);
+            assert.isTrue(data.quantity.hasCurrentFilter());
+
+            v = [2, 3];
+            data.quantity.filterRange(v);
+            assert.strictEqual(data.quantity.currentFilter(), v);
+            assert.isTrue(data.quantity.hasCurrentFilter());
+
+            v = function (d) { return d == 1; };
+            data.quantity.filterFunction(v);
+            assert.strictEqual(data.quantity.currentFilter(), v);
+            assert.isTrue(data.quantity.hasCurrentFilter());
+
+            // no filter:
+
+            data.quantity.filterAll();
+            assert.isUndefined(data.quantity.currentFilter());
+            assert.isFalse(data.quantity.hasCurrentFilter());
+
+            // special values:
+
+            // falsy
+            data.quantity.filterExact(0);
+            assert.isZero(data.quantity.currentFilter());
+            assert.isTrue(data.quantity.hasCurrentFilter());
+
+            // null: explicitly allowed by spec since naturally orderable
+            data.quantity.filterExact(null);
+            assert.isNull(data.quantity.currentFilter());
+            assert.isTrue(data.quantity.hasCurrentFilter());
+
+            // undefined: not orderable, should not be used as filter, but no error is thrown so check behavior anyway
+            data.quantity.filterExact(undefined);
+            assert.isUndefined(data.quantity.currentFilter());
+            assert.isTrue(data.quantity.hasCurrentFilter());
+
+            // filter on multiple dimensions:
+
+            v = [1, 2], w = 3;
+            data.quantity.filterExact(v);
+            data.tags.filterExact(w);
+            assert.strictEqual(data.quantity.currentFilter(), v);
+            assert.isTrue(data.quantity.hasCurrentFilter());
+            assert.strictEqual(data.tags.currentFilter(), w);
+            assert.isTrue(data.tags.hasCurrentFilter());
+            assert.isUndefined(data.total.currentFilter());
+            assert.isFalse(data.total.hasCurrentFilter());
+
+          } finally {
+            data.quantity.filterAll();
+            data.tags.filterAll();
+          }
         }
       },
 
@@ -908,14 +981,14 @@ suite.addBatch({
         "reduce": {
           "defaults to count": function(data) {
             assert.deepEqual(data.date.hours.top(1), [
-              {key: new Date(Date.UTC(2011, 10, 14, 17, 00, 00)), value: 9}
+              {key: new Date(Date.UTC(2011, 10, 14, 17, 0, 0)), value: 9}
             ]);
           },
           "determines the computed reduce value": function(data) {
             try {
               data.date.hours.reduceSum(function(d) { return d.total; });
               assert.deepEqual(data.date.hours.top(1), [
-                {key: new Date(Date.UTC(2011, 10, 14, 17, 00, 00)), value: 1240}
+                {key: new Date(Date.UTC(2011, 10, 14, 17, 0, 0)), value: 1240}
               ]);
             } finally {
               data.date.hours.reduceCount();
@@ -980,29 +1053,99 @@ suite.addBatch({
         "top": {
           "returns the top k groups by reduce value, in descending order": function(data) {
             assert.deepEqual(data.date.hours.top(3), [
-              {key: new Date(Date.UTC(2011, 10, 14, 17, 00, 00)), value: 9},
-              {key: new Date(Date.UTC(2011, 10, 14, 16, 00, 00)), value: 7},
-              {key: new Date(Date.UTC(2011, 10, 14, 21, 00, 00)), value: 6}
+              {key: new Date(Date.UTC(2011, 10, 14, 17, 0, 0)), value: 9},
+              {key: new Date(Date.UTC(2011, 10, 14, 16, 0, 0)), value: 7},
+              {key: new Date(Date.UTC(2011, 10, 14, 21, 0, 0)), value: 6}
             ]);
           },
           "observes the specified order": function(data) {
             try {
               data.date.hours.order(function(v) { return -v; });
               assert.deepEqual(data.date.hours.top(3), [
-                {key: new Date(Date.UTC(2011, 10, 14, 20, 00, 00)), value: 2},
-                {key: new Date(Date.UTC(2011, 10, 14, 19, 00, 00)), value: 3},
-                {key: new Date(Date.UTC(2011, 10, 14, 18, 00, 00)), value: 5}
+                {key: new Date(Date.UTC(2011, 10, 14, 20, 0, 0)), value: 2},
+                {key: new Date(Date.UTC(2011, 10, 14, 19, 0, 0)), value: 3},
+                {key: new Date(Date.UTC(2011, 10, 14, 18, 0, 0)), value: 5}
               ]);
             } finally {
               data.date.hours.order(function(v) { return v; });
             }
+          },
+          "works correctly on removing and adding back data with array groups": function() {
+            var data = crossfilter();
+            var dimension = data.dimension('tags', true);
+            var group = dimension.group();
+            data.add([
+              {
+                tags: ['A']
+              }, {
+                tags: ['B']
+              }
+            ]);
+            data.remove(function(data) {
+              return data.tags.indexOf('A') !== -1;
+            });
+            data.add([
+              {
+                tags: ['A']
+              }, {
+                tags: ['A']
+              }
+            ]);
+            assert.deepEqual(group.top(Infinity), [
+              {
+                key: 'A',
+                value: 2
+              }, {
+                key: 'B',
+                value: 1
+              }
+            ]);
+          },
+          "works correctly on removing and adding back data with array groups 2": function() {
+            var data = crossfilter();
+            const dimension = data.dimension(e => e.tags, true);
+            const group = dimension.group();
+
+            const data1 = [
+              {
+                id: '0',
+                tags: ['A', 'B'],
+              },
+              {
+                id: '1',
+                tags: ['C'],
+              }
+            ];
+            data.add(data1);
+
+            data.remove(e => e.id === '0');
+
+            const data2 = [
+              {
+                id: '0',
+                tags: ['A', 'B'],
+              }
+            ];
+            data.add(data2);
+            assert.deepEqual(group.top(Infinity), [
+              {
+                key: 'B',
+                value: 1
+              }, {
+                key: 'C',
+                value: 1
+              }, {
+                key: 'A',
+                value: 1
+              }
+            ]);
           }
         },
 
         "order": {
           "defaults to the identity function": function(data) {
             assert.deepEqual(data.date.hours.top(1), [
-              {key: new Date(Date.UTC(2011, 10, 14, 17, 00, 00)), value: 9}
+              {key: new Date(Date.UTC(2011, 10, 14, 17, 0, 0)), value: 9}
             ]);
           },
           "is useful in conjunction with a compound reduce value": function(data) {
@@ -1013,7 +1156,7 @@ suite.addBatch({
                   function() { return {count: 0, total: 0}; })
                   .order(function(v) { return v.total; });
               assert.deepEqual(data.date.hours.top(1), [
-                {key: new Date(Date.UTC(2011, 10, 14, 17, 00, 00)), value: {count: 9, total: 1240}}
+                {key: new Date(Date.UTC(2011, 10, 14, 17, 0, 0)), value: {count: 9, total: 1240}}
               ]);
             } finally {
               data.date.hours.reduceCount().orderNatural();
@@ -1304,10 +1447,27 @@ suite.addBatch({
           data.quantity.filterExact(2);
           var raw = data.allFiltered();
           assert.equal(raw.length, 35);
-          
+
           data.total.filterRange([190, 300]);
           var raw = data.allFiltered();
           assert.equal(raw.length, 18);
+        } finally {
+          data.quantity.filterAll();
+          data.total.filterAll();
+        }
+      },
+      "is affected by all dimensions filters, except those in ignore_dimensions": function(data) {
+        try {
+          data.quantity.filterExact(2);
+          var raw = data.allFiltered([data.quantity]);
+          assert.equal(raw.length, 43);
+
+          data.total.filterRange([190, 300]);
+          raw = data.allFiltered([data.total]);
+          assert.equal(raw.length, 35);
+
+          raw = data.allFiltered([data.quantity, data.total]);
+          assert.equal(raw.length, 43);
         } finally {
           data.quantity.filterAll();
           data.total.filterAll();
@@ -1378,6 +1538,40 @@ suite.addBatch({
         foo.filterAll();
         assert.equal(all.value(), 6);
       },
+      "tag dimension with zero keys": {
+        "three empties": function(data) {
+          var rows = [{id: 1, links: []}, {id: 2, links: []}, {id: 3, links: []}];
+          var ndx = crossfilter(rows);
+          var dimLinks = ndx.dimension(r => r.links, true);
+          dimLinks.filter("vv");
+          assert.equal(dimLinks.top(Infinity).length, 0);
+        }
+      },
+      "tag dimension with one key": {
+        "one key once": function(data) {
+          var rows = [{id: 1, links: ["vv"]}, {id: 2, links: []}];
+          var ndx = crossfilter(rows);
+          var dimLinks = ndx.dimension(r => r.links, true);
+          dimLinks.filter("vv");
+          assert.equal(dimLinks.top(Infinity).length, 1);
+        },
+        "one key doubled": function(data) {
+          var rows = [{id: 1, links: ["vv","vv"]}, {id: 2, links: []}];
+          var ndx = crossfilter(rows);
+          var dimLinks = ndx.dimension(r => r.links, true);
+          dimLinks.filter("vv");
+          // doubled key in tag dimension means it shows up in dim.top() twice
+          assert.equal(dimLinks.top(Infinity).length, 2);
+          assert.equal(ndx.allFiltered().length, 1);
+        },
+        "one key twice": function(data) {
+          var rows = [{id: 1, links: []}, {id: 2, links: ["vv"]}, {id: 3, links: ["vv"]}];
+          var ndx = crossfilter(rows);
+          var dimLinks = ndx.dimension(r => r.links, true);
+          dimLinks.filter("vv");
+          assert.equal(dimLinks.top(Infinity).length, 2);
+        }
+      },
       "can add new groups that are before existing groups": function(data) {
         var data = crossfilter(),
             foo = data.dimension(function(d) { return +d; }),
@@ -1416,6 +1610,282 @@ suite.addBatch({
           }));
         }
         assert.deepEqual(foos.top(1), [{key: -998, value: 8977.5}]);
+      },
+      "can add a record that matches the tag filter": function(data) {
+        var data2 = crossfilter();
+        var fooDimension = data2.dimension(function(d) { return d.foo; }, true);
+        data2.add([
+          {foo: [1, 2, 3], bar: 1},
+          {foo: [1, 2   ], bar: 2},
+          {foo: [   2, 3], bar: 4}
+        ]);
+        var another =
+          {foo: [1,    3], bar: 8};
+
+        var fooGroup = fooDimension.group();
+        var allBarSum = data2.groupAll().reduceSum(function (d) { return d.bar; });
+        var fooBarSum = fooDimension.group().reduceSum(function (d) { return d.bar; });
+        var barDim = data2.dimension(function(d) { return d.bar; });
+        var barGroup = barDim.group();
+
+        assert.equal(allBarSum.value(), 7);
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 2 },
+          { key: 2, value: 3 },
+          { key: 3, value: 2 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 7 },
+          { key: 3, value: 5 }
+        ]);
+
+        fooDimension.filter(3);
+        assert.equal(allBarSum.value(), 5);
+
+        // add a row that matches tag filter
+        data2.add([another]);
+
+        assert.equal(data2.size(), 4);
+        assert.equal(allBarSum.value(), 13); // fails: 5
+        assert.equal(data2.allFiltered().length, 3); // fails: 2
+
+        // fooGroup and fooBarSum do not observe tag filter
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 3 },
+          { key: 3, value: 3 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 11 },
+          { key: 2, value: 7 },
+          { key: 3, value: 13 }
+        ]);
+
+        // barGroup does observe tag filter
+        assert.deepEqual(barGroup.all() [
+          { key: 1, value: 1 },
+          { key: 2, value: 0 },
+          { key: 4, value: 1 },
+          { key: 8, value: 1 }
+        ]);
+
+        fooDimension.filterAll();
+
+        assert.equal(allBarSum.value(), 15); // fails: 7
+        assert.equal(data2.allFiltered().length, 4); // fails: 3
+
+        data2.remove(function () {
+          return true;
+        });
+        assert.deepEqual(fooDimension.top(Infinity), []);
+      },
+      "can add a record that matches the tag filter function": function(data) {
+        var data2 = crossfilter();
+        var fooDimension = data2.dimension(function(d) { return d.foo; }, true);
+        data2.add([
+          {foo: [1, 2, 3], bar: 1},
+          {foo: [1, 2   ], bar: 2},
+          {foo: [   2, 3], bar: 4}
+        ]);
+        var another =
+          {foo: [1,    3], bar: 8};
+
+        var fooGroup = fooDimension.group();
+        var allBarSum = data2.groupAll().reduceSum(function (d) { return d.bar; });
+        var fooBarSum = fooDimension.group().reduceSum(function (d) { return d.bar; });
+        var barDim = data2.dimension(function(d) { return d.bar; });
+        var barGroup = barDim.group();
+
+        assert.equal(allBarSum.value(), 7);
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 2 },
+          { key: 2, value: 3 },
+          { key: 3, value: 2 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 7 },
+          { key: 3, value: 5 }
+        ]);
+
+        fooDimension.filterFunction(k => k === 3);
+        assert.equal(allBarSum.value(), 5);
+
+        // add a row that matches tag filter
+        data2.add([another]);
+
+        assert.equal(data2.size(), 4);
+        assert.equal(allBarSum.value(), 13); // fails: 5
+        assert.equal(data2.allFiltered().length, 3); // fails: 2
+
+        // fooGroup and fooBarSum do not observe tag filter
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 3 },
+          { key: 3, value: 3 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 11 },
+          { key: 2, value: 7 },
+          { key: 3, value: 13 }
+        ]);
+
+        // barGroup does observe tag filter
+        assert.deepEqual(barGroup.all() [
+          { key: 1, value: 1 },
+          { key: 2, value: 0 },
+          { key: 4, value: 1 },
+          { key: 8, value: 1 }
+        ]);
+
+        fooDimension.filterAll();
+
+        assert.equal(allBarSum.value(), 15); // fails: 7
+        assert.equal(data2.allFiltered().length, 4); // fails: 3
+
+        data2.remove(function () {
+          return true;
+        });
+        assert.deepEqual(fooDimension.top(Infinity), []);
+      },
+      "can add a record that doesn't match the tag filter": function(data) {
+        var data2 = crossfilter();
+        var fooDimension = data2.dimension(function(d) { return d.foo; }, true);
+        data2.add([
+          {foo: [1, 2, 3], bar: 1},
+          {foo: [1, 2   ], bar: 2},
+          {foo: [   2, 3], bar: 4}
+        ]);
+        var yetanother =
+          {foo: [   2   ], bar: 8};
+
+        var fooGroup = fooDimension.group();
+        var allBarSum = data2.groupAll().reduceSum(function (d) { return d.bar });
+        var fooBarSum = fooDimension.group().reduceSum(function (d) { return d.bar });
+        var barDim = data2.dimension(function(d) { return d.bar; });
+        var barGroup = barDim.group();
+
+        assert.equal(allBarSum.value(), 7);
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 2 },
+          { key: 2, value: 3 },
+          { key: 3, value: 2 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 7 },
+          { key: 3, value: 5 }
+        ]);
+
+        fooDimension.filter(3);
+        assert.equal(allBarSum.value(), 5);
+
+        // add a row that doesn't match tag filter
+        data2.add([yetanother]);
+
+        assert.equal(data2.size(), 4);
+        assert.equal(allBarSum.value(), 5);
+        assert.equal(data2.allFiltered().length, 2);
+
+        // fooGroup and fooBarSum do not observe tag filter
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 2 },
+          { key: 2, value: 4 },
+          { key: 3, value: 2 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 15 },
+          { key: 3, value: 5 }
+        ]);
+
+        // barGroup does observe tag filter
+        assert.deepEqual(barGroup.all() [
+          { key: 1, value: 1 },
+          { key: 2, value: 0 },
+          { key: 4, value: 1 },
+          { key: 8, value: 0 }
+        ]);
+
+        fooDimension.filterAll();
+
+        assert.equal(allBarSum.value(), 15); // fails: 7
+        assert.equal(data2.allFiltered().length, 4); // fails: 3
+
+        data2.remove(function () {
+          return true;
+        });
+        assert.deepEqual(fooDimension.top(Infinity), []);
+      },
+      "can add a record that doesn't match the tag filter function": function(data) {
+        var data2 = crossfilter();
+        var fooDimension = data2.dimension(function(d) { return d.foo; }, true);
+        data2.add([
+          {foo: [1, 2, 3], bar: 1},
+          {foo: [1, 2   ], bar: 2},
+          {foo: [   2, 3], bar: 4}
+        ]);
+        var yetanother =
+          {foo: [   2   ], bar: 8};
+
+        var fooGroup = fooDimension.group();
+        var allBarSum = data2.groupAll().reduceSum(function (d) { return d.bar });
+        var fooBarSum = fooDimension.group().reduceSum(function (d) { return d.bar });
+        var barDim = data2.dimension(function(d) { return d.bar; });
+        var barGroup = barDim.group();
+
+        assert.equal(allBarSum.value(), 7);
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 2 },
+          { key: 2, value: 3 },
+          { key: 3, value: 2 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 7 },
+          { key: 3, value: 5 }
+        ]);
+
+        fooDimension.filterFunction(k => k === 3);
+        assert.equal(allBarSum.value(), 5);
+
+        // add a row that doesn't match tag filter
+        data2.add([yetanother]);
+
+        assert.equal(data2.size(), 4);
+        assert.equal(allBarSum.value(), 5);
+        assert.equal(data2.allFiltered().length, 2);
+
+        // fooGroup and fooBarSum do not observe tag filter
+        assert.deepEqual(fooGroup.all(), [
+          { key: 1, value: 2 },
+          { key: 2, value: 4 },
+          { key: 3, value: 2 }
+        ]);
+        assert.deepEqual(fooBarSum.all(), [
+          { key: 1, value: 3 },
+          { key: 2, value: 15 },
+          { key: 3, value: 5 }
+        ]);
+
+        // barGroup does observe tag filter
+        assert.deepEqual(barGroup.all() [
+          { key: 1, value: 1 },
+          { key: 2, value: 0 },
+          { key: 4, value: 1 },
+          { key: 8, value: 0 }
+        ]);
+
+        fooDimension.filterAll();
+
+        assert.equal(allBarSum.value(), 15); // fails: 7
+        assert.equal(data2.allFiltered().length, 4); // fails: 3
+
+        data2.remove(function () {
+          return true;
+        });
+        assert.deepEqual(fooDimension.top(Infinity), []);
       }
     },
     "remove": {
@@ -1569,7 +2039,7 @@ suite.addBatch({
         });
         assert.deepEqual(data.foo.top(Infinity), []);
       },
-      "can remove records while filtering on iterable dimension": function(data) {
+      "can remove records using predicate function while filtering on iterable dimension": function(data) {
         var data2 = crossfilter();
         var fooDimension = data2.dimension(function(d) { return d.foo; }, true);
         data2.add([
@@ -1774,7 +2244,7 @@ suite.addBatch({
         "returns the top k records by value, in descending order": function(data) {
           var top = data.tags.top(3)
           assert.equal(top.length, 3)
-          
+
           assert.equal(Math.max.apply(null, top[0].tags), 5)
           assert.equal(Math.max.apply(null, top[1].tags), 5)
           assert.equal(Math.max.apply(null, top[2].tags), 5)
@@ -1801,7 +2271,7 @@ suite.addBatch({
             data.quantity.filterAll();
             data.type.filterExact("visa");
             assert.deepEqual(data.tags.top(1), [
-              {date: "2011-11-14T16:28:54Z", quantity: 1, total: 300, tip: 200, type: "visa", tags: [2,4,5]}
+              {date: "2011-11-14T23:16:09Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [2,4,5]}
             ]);
             data.quantity.filterExact(2);
             assert.deepEqual(data.tags.top(1), [
@@ -1878,15 +2348,15 @@ suite.addBatch({
             data.type.filterExact("tab");
             assert.deepEqual(data.tags.bottom(2), [
               {date: '2011-11-14T17:22:59Z',quantity: 2,total: 90,tip: 0,type: 'tab',tags: []},
-              {date: '2011-11-14T16:20:19Z',quantity: 2,total: 190,tip: 100,type: 'tab',tags: [ 1, 3 ]}
+              {date: "2011-11-14T16:17:54Z", quantity: 2, total: 190, tip: 100, type: "tab", tags: [1,2,3]}
             ]);
             data.type.filterExact("visa");
             assert.deepEqual(data.tags.bottom(1), [
-              {date: '2011-11-14T17:29:52Z', quantity: 1, total: 200, tip: 100, type: 'visa', tags: [ -1, 0, 'hello', 'world']}
+              {date: '2011-11-14T17:29:52Z', quantity: 1, total: 200, tip: 100, type: 'visa', tags: [ -1, 0, 3, 4]}
             ]);
             data.quantity.filterExact(2);
             assert.deepEqual(data.tags.bottom(1), [
-              {date: '2011-11-14T17:38:40Z', quantity: 2, total: 200, tip: 100, type: 'visa', tags: [ 2, 4, 5 ]}
+              {date: "2011-11-14T17:38:40Z", quantity: 2, total: 200, tip: 100, type: "visa", tags: [2,4,5]}
             ]);
           } finally {
             data.type.filterAll();
@@ -1906,8 +2376,8 @@ suite.addBatch({
           try {
             data.tip.filterExact(100);
             assert.deepEqual(data.tags.top(2), [
-              {date: '2011-11-14T22:34:28Z', quantity: 2, total: 190, tip: 100, type: 'tab', tags: [ 2, 4, 5 ]},
-              {date: '2011-11-14T23:21:22Z', quantity: 2, total: 190, tip: 100, type: 'tab', tags: [ 2, 4, 5 ]}
+              {date: "2011-11-14T23:21:22Z", quantity: 2, total: 190, tip: 100, type: "tab", tags: [2,4,5]},
+              {date: "2011-11-14T23:16:09Z", quantity: 1, total: 200, tip: 100, type: "visa", tags: [2,4,5]}
             ]);
           } finally {
             data.tip.filterAll();
@@ -1917,7 +2387,7 @@ suite.addBatch({
           try {
             data.tip.filterExact(null); // equivalent to 0 by natural ordering
             assert.deepEqual(data.tags.top(2), [
-              {date: '2011-11-14T17:25:45Z', quantity: 2, total: 200, tip: null, type: 'cash', tags: [ 2, 4, 5 ]},
+              {date: "2011-11-14T22:48:05Z", quantity: 2, total: 91, tip: 0, type: "tab", tags: [2,4,5]},
               {date: '2011-11-14T20:06:33Z', quantity: 1, total: 100, tip: null, type: 'cash', tags: [ 2, 4, 5 ]}
             ]);
           } finally {
@@ -2087,14 +2557,11 @@ suite.addBatch({
 
         "key defaults to value": function(data) {
           assert.deepEqual(data.tags.all.top(Infinity), [
-            { key: 3, value: 28 },
-            { key: 2, value: 23 },
-            { key: 4, value: 23 },
+            { key: 2, value: 33 },
+            { key: 3, value: 29 },
+            { key: 4, value: 24 },
             { key: 1, value: 18 },
             { key: 5, value: 13 },
-            { key: 2, value: 10 },
-            { key: 'world', value: 1 },
-            { key: 'hello', value: 1 },
             { key: 0, value: 1 },
             { key: -1, value: 1 }
           ]);
@@ -2153,14 +2620,14 @@ suite.addBatch({
         "size": {
           "returns the cardinality": function(data) {
             assert.equal(data.date.hours.size(), 8);
-            assert.equal(data.tags.all.size(), 10);
+            assert.equal(data.tags.all.size(), 7);
           },
           "ignores any filters": function(data) {
             try {
               data.tags.filterExact(1);
               data.quantity.filterRange([100, 200]);
               assert.equal(data.date.hours.size(), 8);
-              assert.equal(data.tags.all.size(), 10);
+              assert.equal(data.tags.all.size(), 7);
             } finally {
               data.quantity.filterAll();
               data.tags.filterAll();
@@ -2171,21 +2638,18 @@ suite.addBatch({
         "reduce": {
           "defaults to count": function(data) {
             assert.deepEqual(data.tags.all.top(1), [
-              { key: 3, value: 28 }
+              { key: 2, value: 33 }
             ]);
           },
           "determines the computed reduce value": function(data) {
             try {
               data.tags.all.reduceSum(function(d) { return d.total; });
               assert.deepEqual(data.tags.all.top(Infinity), [
-                { key: 3, value: 4029 },
-                { key: 4, value: 3661 },
-                { key: 2, value: 3631 },
+                { key: 2, value: 5241 },
+                { key: 3, value: 4229 },
+                { key: 4, value: 3861 },
                 { key: 1, value: 2709 },
                 { key: 5, value: 2341 },
-                { key: 2, value: 1610 },
-                { key: 'world', value: 200 },
-                { key: 'hello', value: 200 },
                 { key: 0, value: 200 },
                 { key: -1, value: 200 }
               ]);
@@ -2294,9 +2758,9 @@ suite.addBatch({
         "top": {
           "returns the top k groups by reduce value, in descending order": function(data) {
             assert.deepEqual(data.tags.all.top(3), [
-              { key: 3, value: 28 },
-              { key: 2, value: 23 },
-              { key: 4, value: 23 }
+              { key: 2, value: 33 },
+              { key: 3, value: 29 },
+              { key: 4, value: 24 }
             ]);
           },
           "observes the specified order": function(data) {
@@ -2305,7 +2769,7 @@ suite.addBatch({
               assert.deepEqual(data.tags.all.top(3), [
                 { key: 0, value: 1 },
                 { key: -1, value: 1 },
-                { key: 'hello', value: 1 }
+                { key: 5, value: 13 }
               ]);
             } finally {
               data.tags.all.order(function(v) { return v; });
@@ -2316,7 +2780,7 @@ suite.addBatch({
         "order": {
           "defaults to the identity function": function(data) {
             assert.deepEqual(data.tags.all.top(1), [
-              { key: 3, value: 28 }
+              { key: 2, value: 33 }
             ]);
           },
           "is useful in conjunction with a compound reduce value": function(data) {
@@ -2328,8 +2792,8 @@ suite.addBatch({
                   .order(function(v) { return v.total; });
               assert.deepEqual(data.tags.all.top(1), [
                 {
-                    key: 3,
-                    value: { count: 28, total: 4029 }
+                    key: 2,
+                    value: { count: 33, total: 5241 }
                 }
               ]);
             } finally {
@@ -3056,7 +3520,33 @@ suite.addBatch({
         }
       },
     },
+    "filter the 32nd dimension": function() {
+      var dataSet = [];
 
+      var itemBuilder = (fieldCount, value) => {
+        var item = {};
+        for (var i = 0; i < fieldCount; i++) {
+          item['f' + (i + 1)] = value;
+        }
+        return item;
+      }
+
+      dataSet.push(itemBuilder(34, 'a'));
+      dataSet.push(itemBuilder(34, 'b'));
+      var data = crossfilter(dataSet);
+
+      var dimensions = Object.keys(dataSet[0]).map(key => data.dimension(d => d[key]));
+      var groups = dimensions.map(d => d.group());
+      dimensions[31].filterExact('a');
+      // correct group value
+      const correctGroupValue = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0];
+      assert.deepEqual(groups.map(g => g.all()[1].value), correctGroupValue);
+
+      dimensions[31].filter(null);
+      dimensions[31].filterExact('a');
+
+      assert.deepEqual(groups.map(g => g.all()[1].value), correctGroupValue);
+    },
   }
 });
 

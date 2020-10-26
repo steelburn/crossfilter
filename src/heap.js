@@ -1,6 +1,4 @@
-'use strict';
-
-var crossfilter_identity = require('./identity');
+import identity from './identity';
 
 function heap_by(f) {
 
@@ -43,5 +41,7 @@ function heap_by(f) {
   return heap;
 }
 
-module.exports = heap_by(crossfilter_identity);
-module.exports.by = heap_by;
+const h = heap_by(identity);
+h.by = heap_by;
+
+export default h;
